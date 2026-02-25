@@ -262,7 +262,7 @@ function collect_vm_params() {
   fi
 
   # Disk Size
-  DISK_SIZE="16G"
+  DISK_SIZE="100G"
   if NEW_DISK=$(whiptail --backtitle "OVH Debian 13 VM - TeaSpeak" \
     --inputbox "Tamanho do disco (ex: 16, 32, 64)" 8 58 "16" \
     --title "DISCO" --cancel-button Sair 3>&1 1>&2 2>&3); then
