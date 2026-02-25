@@ -1,0 +1,683 @@
+#Descricao:
+#  A versao atual da configuracao
+#Aviso:
+#  Este e um id gerado automaticamente!
+#  Modificacoes podem causar perda de dados!
+#  O valor deve ser um valor numerico positivo entre 0 e 1410065408
+version: 15
+general:
+  #Descricao:
+  #  Insira aqui seu codigo de licenca TeaSpeak (se voce tiver um)
+  #  O valor deve ser uma string
+  license: none
+  database:
+    #Descricao:
+    #  URLs disponiveis:
+    #    sqlite://[arquivo]
+    #    mysql://[host][:porta]/[banco_de_dados][?nomePropriedade1=valorPropriedade1[&nomePropriedade2=valorPropriedade2]...]
+    #  
+    #  Mais informacoes sobre a URL mysql podem ser encontradas aqui: https://dev.mysql.com/doc/connector-j/5.1/en/connector-j-reference-configuration-properties.html
+    #  Ha tambem uma nova propriedade chamada 'connections', que descreve quantas conexoes e consultas podem ser executadas simultaneamente
+    #  Exemplo MySQL: mysql://localhost:3306/teaspeak?userName=root&password=minhasenhasecreta&connections=4
+    #  Atencao: Se voce estiver usando MySQL, precisa de pelo menos 3 conexoes!
+    #  O valor deve ser uma string
+    url: sqlite://TeaData.sqlite
+    sqlite:
+      #  Descricao:
+      #  Modo de bloqueio do banco de dados Sqlite.
+      #  Defina como vazio ("") para usar a configuracao padrao do driver
+      #  Mais informacoes podem ser encontradas aqui: https://www.sqlite.org/lockingv3.html
+      #  O valor deve ser uma string
+      locking_mode: EXCLUSIVE
+      #  Descricao:
+      #  Modo sincrono do banco de dados Sqlite.
+      #  Defina como vazio ("") para usar a configuracao padrao do driver
+      #  Mais informacoes podem ser encontradas aqui: https://www.sqlite.org/pragma.html#pragma_synchronous
+      #  O valor deve ser uma string
+      sync_mode: NORMAL
+      #  Descricao:
+      #  Modo de journal do banco de dados Sqlite.
+      #  Defina como vazio ("") para usar a configuracao padrao do driver
+      #  Mais informacoes podem ser encontradas aqui: https://www.sqlite.org/pragma.html#pragma_journal_mode
+      #  O valor deve ser uma string
+      journal_mode: WAL
+  #  Descricao:
+  #  Define a pasta onde os arquivos de dump de crash serao movidos quando o servidor travar
+  #  O valor deve ser uma string
+  crash_path: crash_dumps/
+  #  Descricao:
+  #  O prefixo padrao de comando de chat do canal
+  #  O valor deve ser uma string
+  command_prefix: /!.
+  #  Descricao:
+  #  Mapeamento para os nomes de permissoes
+  #  Aviso:
+  #  NAO TOQUE a menos que tenha 100% de certeza!
+  #  O valor deve ser uma string
+  permission_mapping: resources/permission_mapping.txt
+log:
+  #  Descricao:
+  #  O nivel de log nos arquivos de log
+  #  Tipos disponiveis:
+  #    0: Trace
+  #    1: Debug
+  #    2: Info
+  #    3: Warn
+  #    4: Error
+  #    5: Critical
+  #    6: Off
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser um valor numerico positivo entre 0 e 6
+  level: 2
+  #  Descricao:
+  #  O nivel de log no terminal do servidor TeaSpeak
+  #  Tipos disponiveis:
+  #    0: Trace
+  #    1: Debug
+  #    2: Info
+  #    3: Warn
+  #    4: Error
+  #    5: Critical
+  #    6: Off
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser um valor numerico positivo entre 0 e 6
+  terminal_level: 2
+  #  Descricao:
+  #  Desabilitar/habilitar codigos ascii no arquivo de log
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  colored: 0
+  #  Descricao:
+  #  Tamanho do bloco de log do servidor virtual
+  #  O valor deve ser um long sem sinal entre 0 e 65535
+  vs_size: 0
+  #  Descricao:
+  #  O caminho do arquivo de log
+  #  O valor deve ser uma string
+  path: logs/log_${time}(%Y-%m-%d_%H:%M:%S)_${group}.log
+binding:
+  voice:
+    #  Notas:
+    #  Multiplas ligacoes suportadas aqui! O delimitador de host e ","
+    #  O valor deve ser uma string
+    default_host: "0.0.0.0,::"
+    #Notas:
+    #  Forcar o host padrao para cada servidor virtual. Ignorando o host especifico do servidor
+    #O valor deve ser um valor numerico positivo entre 0 e 1
+    enforce: 0
+  web:
+    #Notas:
+    #  Multiplas ligacoes suportadas aqui! O delimitador de host e ","
+    #O valor deve ser uma string
+    default_host: 0.0.0.0,[::]
+  query:
+    #O valor deve ser um valor numerico positivo entre 1 e 65535
+    port: 10101
+    #Notas:
+    #  Multiplas ligacoes suportadas aqui! O delimitador de host e ","
+    #O valor deve ser uma string
+    host: 0.0.0.0,[::]
+  file:
+    #O valor deve ser um valor numerico positivo entre 1 e 65535
+    port: 30303
+    #Notas:
+    #  Multiplas ligacoes suportadas aqui! O delimitador de host e ","
+    #O valor deve ser uma string
+    host: 0.0.0.0,[::]
+query:
+  #Descricao:
+  #  Alterar o caractere de nova linha da query
+  #  Notas:
+  #  NOTA: Bots compativeis com TS3 podem requerer "\n\r"
+  #  O valor deve ser uma string
+  nl_char: "\n\r"
+  max_line_buffer: 1048576
+  #  Descricao:
+  #  A mensagem de boas-vindas da query
+  #  Notas:
+  #  Se nao for como o TeamSpeak, algumas aplicacoes podem nao reconhecer a Query
+  #  MOTD padrao do TeamSpeak 3:
+  #  TS3\n\rBem-vindo a interface ServerQuery do TeamSpeak 3, digite "help" para uma lista de comandos e "help <comando>" para informacoes sobre um comando especifico.\n\r
+  #  NOTA: As vezes voce precisa adicionar mais um \r\n!
+  #  O valor deve ser uma string
+  motd: "TS3\n\rWelcome to the TeamSpeak 3 ServerQuery interface, type \"help\" for a list of commands and \"help <command>\" for information on a specific command.\n\r"
+  #  Descricao:
+  #  Habilitar/desabilitar SSL para query
+  #  Modos disponiveis:
+  #    0: Desabilitado
+  #    1: Habilitado (Criptografia forcada)
+  #    2: Hibrido (Prefere criptografia mas faz fallback quando nao esta disponivel)
+  #  O valor deve ser um valor numerico positivo entre 0 e 2
+  enableSSL: 2
+  ssl:
+    #  Descricao:
+    #  O certificado SSL para o cliente query
+    #  O valor deve ser uma string
+    certificate: certs/query_certificate.pem
+    #  Descricao:
+    #  A chave privada SSL para o cliente query (Voce deve exportar a chave sem senha!)
+    #  O valor deve ser uma string
+    privatekey: certs/query_privatekey.pem
+  max_line_buffer: 1048576
+voice:
+  #  Descricao:
+  #  Alterar a porta padrao do servidor de voz
+  #  Isso tambem define o ponto de partida onde a instancia procura por portas de servidor livres na criacao de um novo servidor
+  #  Notas:
+  #  Esta configuracao so se aplica uma vez, quando voce cria uma nova instancia.
+  #  Uma vez aplicada, a porta padrao do servidor nao sera alterada!
+  #  O ponto de partida para a criacao do servidor ainda se aplica.
+  #  O valor deve ser um valor numerico positivo entre 1 e 65535
+  default_port: 10500
+  #  Descricao:
+  #  Habilitar/desabilitar a notificacao de mute
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  notifymute: 0
+  #  Descricao:
+  #  Suprimir os avisos de integracao MyTS
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  suppress_myts_warnings: 1
+  #  Descricao:
+  #  Habilitar/desabilitar reinicializacao rapida de sessao.
+  #  Aviso:
+  #  NAO TOQUE a menos que tenha 100% de certeza!
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  allow_session_reinitialize: 1
+  rsa:
+    #  Descricao:
+    #  A quantidade de quebra-cabecas pre-computados
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 65536
+    puzzle_pool_size: 128
+  handshake:
+    #  Descricao:
+    #  O nivel do quebra-cabeca. (Um numero maior resultara em um tempo de calculo mais longo para o quebra-cabeca RSA do gerenciador)
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um valor numerico positivo entre 512 e 1048576
+    puzzle_level: 1000
+    #  Descricao:
+    #  Forca a troca de cookies (Protecao de baixo nivel contra ataques distribuidos de negacao de servico (ataques DDOS))
+    #  Notas:
+    #  Esta opcao e altamente recomendada!
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    enforce_cookie: 1
+    #  Descricao:
+    #  Habilita/desabilita o popup de aviso para o editor de permissoes do TeamSpeak 3.
+    #  Notas:
+    #  Esta opcao e altamente recomendada!
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    warn_on_permission_editor: 1
+  #  Descricao:
+  #  Quantidade maxima de tentativas de entrada por segundo.
+  #  Notas:
+  #  Um valor de zero significa ilimitado
+  #  O valor deve ser um valor numerico positivo entre 0 e 1024
+  connect_limit: 1000
+  #  Descricao:
+  #  Quantidade maxima de tentativas de entrada por segundo por ip.
+  #  Notas:
+  #  Um valor de zero significa ilimitado
+  #  O valor deve ser um valor numerico positivo entre 0 e 1024
+  client_connect_limit: 10
+  protocol:
+    #  Descricao:
+    #  Habilita o protocolo mais novo e seguro baseado no padrao documentado do TeamSpeak
+    #  Notas:
+    #  Uma cadeia de protocolo invalida pode levar clientes a calcular um resultado de segredo compartilhado errado
+    #  Isso pode causar falha na configuracao da conexao e o cliente nao conseguira se conectar!
+    #O valor deve ser um valor numerico positivo entre 0 e 1
+    experimental_31: 1
+server:
+  #  Descricao:
+  #  A plataforma exibida para o cliente
+  #Notas:
+  #  Esta opcao e apenas para a versao premium.
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser uma string
+  platform: Linux
+  #  Descricao:
+  #  A versao exibida para o cliente
+  #  Notas:
+  #  Esta opcao e apenas para a versao premium.
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser uma string
+  version: "3.13.7 [Build: 1655900513]"
+  #  Descricao:
+  #  O tipo de licenca exibido para cada Cliente TeaSpeak 3
+  #  Tipos disponiveis:
+  #    0: Sem Licenca
+  #    1: Licenca de Provedor de Host TeaSpeak Autorizado (ATHP)
+  #    2: Licenca Offline/Lan
+  #    3: Licenca Sem Fins Lucrativos (NPL)
+  #    4: Licenca Desconhecida
+  #    5: ~marcador~
+  #    6: Auto-Licenca (Baseada em servidor)
+  #    7: Auto-Licenca (Baseada em instancia)
+  #  Notas:
+  #  Esta opcao so funciona para clientes nao 3.2!
+  #  Esta opcao e apenas para a versao premium.
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser um valor numerico positivo entre 0 e 7
+  licence: 1
+  #  Descricao:
+  #  Habilitar/desabilitar a exclusao de banimentos antigos no banco de dados
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  delete_old_bans: 0
+  #  Descricao:
+  #  Habilitar/desabilitar relatorios de weblist globalmente! (A configuracao do servidor nao sera desabilitada, eles simplesmente nao serao enviados)
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  allow_weblist: 0
+  #  Descricao:
+  #  Se habilitado, um erro sera lancado em caracteres UTF-8 invalidos no protocolo (Query & Client).
+  #  Caso contrario, o par de propriedades sera descartado silenciosamente!
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  strict_ut8_mode: 0
+  #  Descricao:
+  #  Permitir que qualquer pessoa envie mensagens de texto para clientes que estao em canais invisiveis
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  show_invisible_clients: 1
+  #  Descricao:
+  #  Desabilitar o salvamento de enderecos IP no banco de dados.
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  disable_ip_saving: 1
+  #  Descricao:
+  #  Adicionar por padrao um novo bot de musica para cada servidor virtual criado.
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  default_music_bot: 0
+  #  Descricao:
+  #  Definir o limite para servidores virtuais maximos. -1 significa ilimitado.
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser um long sem sinal entre -1 e 999999
+  max_virtual_servers: 16
+  limits:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    poke_message_length: 1024
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    talk_power_request_message_length: 50
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    afk_message_length: 50
+  authentication:
+    #  Descricao:
+    #  Permitir ou nao permitir autenticacao de cliente apenas pelo nome
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    name: 0
+  clients:
+    #  Descricao:
+    #  Permitir/nao permitir que o cliente TeamSpeak 3 entre no servidor.
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    teamspeak: 1
+    not_allowed_message: ""
+    #  Descricao:
+    #  Adicionar uma mensagem de boas-vindas extra para usuarios do cliente TeamSpeak
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    teamspeak_message: ""
+    #  Descricao:
+    #  Os modos de tipo de mensagem de boas-vindas
+    #  0 - Nenhum, nao fazer nada
+    #  1 - Mensagem, envia esta mensagem antes da mensagem de boas-vindas do servidor
+    #  2 - Mensagem, cutucar o cliente com a mensagem quando ele entrar no servidor
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 3
+    teamspeak_message_type: 0
+    #  Descricao:
+    #  Adicionar uma mensagem de boas-vindas extra para os usuarios do Cliente TeaSpeak
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    teaspeak_message: ""
+    #  Descricao:
+    #  Os modos de tipo de mensagem de boas-vindas
+    #  0 - Nenhum, nao fazer nada
+    #  1 - Mensagem, envia esta mensagem antes da mensagem de boas-vindas do servidor
+    #  2 - Mensagem, cutucar o cliente com a mensagem quando ele entrar no servidor
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 3
+    teaspeak_message_type: 0
+    #  Descricao:
+    #  Permitir/nao permitir que o cliente Web TeaSpeak entre no servidor.
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    teaweb: 0
+    #  Descricao:
+    #  Adicionar uma mensagem de boas-vindas extra para os usuarios do cliente Web TeaSpeak
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    teaweb_message: ""
+    #  Descricao:
+    #  Os modos de tipo de mensagem de boas-vindas
+    #  0 - Nenhum, nao fazer nada
+    #  1 - Mensagem, envia esta mensagem antes da mensagem de boas-vindas do servidor
+    #  2 - Mensagem, cutucar o cliente com a mensagem quando ele entrar no servidor
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 3
+    teaweb_message_type: 0
+    #  Descricao:
+    #  Permite desabilitar as verificacoes de permissao para i_client_max_clones_uid, i_client_max_clones_ip e i_client_max_clones_hwid
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    ignore_max_clone_permissions: 0
+    not_allowed_message: Cliente TS3 nao permitido!
+  delete_missing_icon_permissions: 1
+  limits:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    poke_message_length: 1024
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    talk_power_request_message_length: 50
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um long sem sinal entre 1 e 262144
+    afk_message_length: 50
+web:
+  #  Descricao:
+  #  Desabilitar/habilitar a possibilidade de conectar via cliente web TeaSpeak
+  #  Notas:
+  #  Se voce desabilitou este recurso, o TeaClient tambem nao podera entrar.
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  enabled: 0
+  #  Descricao:
+  #  Desabilitar/habilitar suporte UPNP
+  #  Aviso:
+  #  NAO TOQUE a menos que tenha 100% de certeza!
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  upnp: 0
+  ssl: {}
+  webrtc:
+    #  Descricao:
+    #  Definir o intervalo de portas dentro do qual o cliente web e TeaClient operam
+    #  Uma porta de zero significa sem limite
+    #  Notas:
+    #  Essas portas devem estar abertas para usar a ponte de voz (Protocolo: UDP)
+    #  O valor deve ser um valor numerico positivo entre 0 e 65535
+    port_min: 50000
+    #  Descricao:
+    #  Definir o intervalo de portas dentro do qual o cliente web e TeaClient operam
+    #  Uma porta de zero significa sem limite
+    #  Notas:
+    #  Essas portas devem estar abertas para usar a ponte de voz (Protocolo: UDP)
+    #  O valor deve ser um valor numerico positivo entre 0 e 65535
+    port_max: 60000
+    stun:
+      #  Descricao:
+      #  Se deve usar um servidor STUN
+      #  Notas:
+      #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+      #  O valor deve ser um valor numerico positivo entre 0 e 1
+      enabled: 1
+      #  Descricao:
+      #  Nome do host STUN
+      #  Notas:
+      #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+      #  O valor deve ser uma string
+      host: 108.177.15.127
+      #  Descricao:
+      #  Porta do servidor STUN
+      #  Notas:
+      #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+      #  O valor deve ser um valor numerico positivo entre 1 e 65535
+      port: 19302
+      ip: 108.177.15.127
+    #  Descricao:
+    #  Habilitar UDP para o cliente web
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    udp: 1
+    #  Descricao:
+    #  Habilitar TCP para o cliente web
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    tcp: 1
+geolocation:
+  #  Descricao:
+  #  O pais de fallback se a consulta falhar
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser uma string
+  fallback_country: DE
+  #  Descricao:
+  #  Forcar o pais padrao e desabilitar resolucao
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  force_fallback_country: 0
+  mapping:
+    #  Descricao:
+    #  O arquivo de mapeamento para o provedor fornecido
+    #  Padrao para IP2Location: geoloc/IP2Location.CSV
+    #  Padrao para Software77: geoloc/IpToCountry.csv
+    #O valor deve ser uma string
+    file: geoloc/IP2Location.CSV
+    #  Descricao:
+    #  O resolvedor de localizacao IP 2
+    #  0 = IP2Location
+    #  1 = Software77
+    #  O valor deve ser um valor numerico positivo entre 0 e 2
+    type: 0
+  vpn:
+    #  Descricao:
+    #  O arquivo de mapeamento para verificador de vpn (https://github.com/client9/ipcat/blob/master/datacenters.csv)
+    #  O valor deve ser uma string
+    file: geoloc/ipcat.csv
+    #  Descricao:
+    #  Desabilitar/habilitar a deteccao de vpn
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    enabled: 0
+music:
+  #  Descricao:
+  #  Habilitar/desabilitar os bots de musica
+  #  O valor deve ser um valor numerico positivo entre 0 e 1
+  enabled: 0
+messages:
+  voice:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    server_stop: Servidor Parado!
+  application:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    stop: Servidor Desligado!
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    crash: Servidor Travou! (Reiniciando automaticamente...)
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser uma string
+  idle_time: Tempo ocioso excedido
+  #  Notas:
+  #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+  #  O valor deve ser uma string
+  teamspeak_permission_editor: "\n[b][COLOR=#aa0000]ATENCAO[/COLOR][/b]:\nParece que voce esta tentando editar as permissoes do TeaSpeak com o cliente TeamSpeak 3!\nIsso e [b]muito[/b] problematico devido a um bug no cliente que voce esta usando.\n\nRecomendamos [b]usar o cliente [url=https://web.teaspeak.de/]TeaSpeak-Web[/url][/b] ou o [b][url=https://teaspeak.de/]cliente TeaSpeak[/url][/b].\nYatQA tambem e uma boa opcao.\n\nPara desabilitar/editar esta mensagem, por favor edite o config.yml\nObserve: Bugs de permissao que forem reportados nao serao aceitos."
+  mute:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    mute_message: ""
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    unmute_message: ""
+  kick_invalid:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    hardware_id: ID de hardware invalido. Protocolo hackeado?
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    command: Comando invalido. Protocolo hackeado?
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    badges: Insignias invalidas. Protocolo hackeado?
+  vpn:
+    #  Descricao:
+    #  Esta e a mensagem de kick/ban quando um cliente tenta se conectar com uma vpn
+    #  Variaveis estao habilitadas. Disponiveis:
+    #   - provider.name => Contem o provedor do ip que foi sinalizado como vps
+    #   - provider.website => Contem o site do provedor do ip que foi sinalizado como vps
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    kick: Falha ao conectar ao servidor
+  shutdown:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    scheduled: "[b][color=#DA9100]Desligamento agendado em ${time}(%Y-%m-%d %H:%M:%S)[/color][/b]"
+    #  Descricao:
+    #  ${interval} e definido via mapa em 'intervals'
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    interval: "[b][color=red]Instancia do servidor desligando em ${interval}[/color][/b]"
+    #  Descricao:
+    #  Adicione ou delete intervalos como quiser
+    intervals:
+      1: 1 segundo
+      2: 2 segundos
+      3: 3 segundos
+      4: 4 segundos
+      5: 5 segundos
+      10: 10 segundos
+      20: 20 segundos
+      30: 30 segundos
+      60: 1 minuto
+      120: 2 minutos
+      180: 3 minutos
+      300: 5 minutos
+      600: 10 minutos
+      1200: 20 minutos
+      1800: 30 minutos
+      3600: 1 hora
+      7200: 2 horas
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    now: "[b][color=red]Instancia do servidor desligando agora[/color][/b]"
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    canceled: "[b][color=green]Desligamento agendado da instancia cancelado![/color][/b]"
+  music:
+    #  Descricao:
+    #  ${title} titulo da musica
+    #  ${description} descricao da musica
+    #  ${url} url da musica
+    #  ${invoker} link para quem adicionou a musica
+    #  O valor deve ser uma string
+    song_announcement: Tocando agora ${title} (${url}) adicionado por ${invoker}
+  timeout:
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    connection_reinitialized: Conexao Reinicializada
+    #  Notas:
+    #  Esta opcao pode ser recarregada enquanto a instancia esta em execucao.
+    #  O valor deve ser uma string
+    packet_resend_failed: Falha no Reenvio de Pacote
+threads:
+  #  Descricao:
+  #  Tamanho do pool de threads para a tarefa de ticking de um VirtualServer
+  #  Aviso:
+  #  NAO TOQUE a menos que tenha 100% de certeza!
+  #  O valor deve ser um long sem sinal entre 1 e 128
+  ticking: 2
+  music:
+    #  Descricao:
+    #  Numero maximo de threads para manipulacao de comandos na instancia
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 1024
+    execute_limit: 5
+    #  Descricao:
+    #  Threads por servidor para execucao de comandos
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 128
+    execute_per_bot: 1
+  web:
+    #  Descricao:
+    #  Tamanho do pool de threads para a tarefa de ticking de um VirtualServer
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 128
+    io_loops: 2
+  voice:
+    #  Descricao:
+    #  Eventos de kernel por servidor
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 16
+    events_per_server: 2
+    #  Descricao:
+    #  Threads por servidor para execucao de comandos
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 128
+    execute_per_server: 2
+    #  Descricao:
+    #  Numero maximo de threads para threads de manipulacao de comandos dentro da instancia
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 1024
+    execute_limit: 5
+    #  Descricao:
+    #  Threads minimas de IO
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 1024
+    io_min: 2
+    #  Descricao:
+    #  Aumento de thread de IO por servidor
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 64
+    io_per_server: 2
+    #  Descricao:
+    #  Threads maximas de IO
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um long sem sinal entre 1 e 1024
+    io_limit: 5
+    #  Descricao:
+    #  Vincular cada thread de IO a uma thread de kernel para melhorar o desempenho de IO de socket
+    #  Aviso:
+    #  NAO TOQUE a menos que tenha 100% de certeza!
+    #  O valor deve ser um valor numerico positivo entre 0 e 1
+    bind_io_thread_to_kernel_thread: 1
+  command_execute: 4
+  network_events: 4
