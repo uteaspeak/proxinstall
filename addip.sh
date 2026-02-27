@@ -145,11 +145,14 @@ remove_ip() {
   [[ "${confirm,,}" != "s" ]] && { echo -e "${RED}Cancelado.${NC}"; exit 0; }
 
   # Backup
-  cp "$NETPLAN_FILE" "${NETPLAN_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
-  log "Backup: ${NETPLAN_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+  local backup_file="${NETPLAN_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+  cp "$NETPLAN_FILE" "$backup_file"
+  chmod 600 "$backup_file"
+  log "Backup: $backup_file"
 
   # Remover a linha do IP
   sed -i "/- ${ip_clean}\/32/d" "$NETPLAN_FILE"
+  chmod 600 "$NETPLAN_FILE"
   log "IP ${ip_to_remove} removido do netplan"
 
   # Aplicar
@@ -248,16 +251,18 @@ read -rp "$(echo -e "${YELLOW}Adicionar este IP?${NC} [S/n]: ")" confirm
 [[ "${confirm,,}" == "n" ]] && { echo -e "${RED}Cancelado.${NC}"; exit 0; }
 
 # ===================== BACKUP =====================
-cp "$NETPLAN_FILE" "${NETPLAN_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
-log "Backup criado"
+BACKUP_FILE="${NETPLAN_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+cp "$NETPLAN_FILE" "$BACKUP_FILE"
+chmod 600 "$BACKUP_FILE"
+log "Backup criado: $BACKUP_FILE"
 
 # ===================== ADICIONAR IP AO NETPLAN =====================
 # Encontrar a ultima linha de "addresses:" e adicionar abaixo do ultimo IP /32
 # Estrategia: inserir nova linha com "- NEW_IP/32" apos a ultima ocorrencia de "/32"
 info "Adicionando IP ao netplan..."
 
-# Encontrar o numero da ultima linha que contem /32 dentro do bloco addresses
-LAST_IP_LINE=$(grep -n '/32' "$NETPLAN_FILE" | tail -1 | cut -d: -f1)
+# Encontrar a ultima linha com /32 dentro do bloco addresses (excluindo rotas com "to:")
+LAST_IP_LINE=$(grep -n '/32' "$NETPLAN_FILE" | grep -v 'to:' | tail -1 | cut -d: -f1)
 
 if [ -z "$LAST_IP_LINE" ]; then
   err "Nao foi possivel encontrar o bloco de addresses no netplan. Verifique $NETPLAN_FILE manualmente."
@@ -266,8 +271,11 @@ fi
 # Extrair a indentacao da linha existente
 INDENT=$(sed -n "${LAST_IP_LINE}p" "$NETPLAN_FILE" | grep -oP '^\s+')
 
-# Inserir nova linha apos a ultima linha com /32
+# Inserir nova linha apos a ultima linha de endereco
 sed -i "${LAST_IP_LINE}a\\${INDENT}- ${NEW_IP}/32" "$NETPLAN_FILE"
+
+# Corrigir permissoes (netplan exige 600)
+chmod 600 "$NETPLAN_FILE"
 
 log "IP adicionado ao netplan"
 
