@@ -719,6 +719,19 @@ systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
   pct push "$CTID" "/tmp/ovh_nftables_${CTID}.conf" /etc/nftables.conf
   rm -f "/tmp/ovh_nftables_${CTID}.conf"
   pct exec "$CTID" -- bash -c '
+# Override do nftables.service para funcionar corretamente em containers LXC
+# - Remove ProtectSystem/ProtectHome (incompativeis com namespaces LXC)
+# - Garante ativacao via multi-user.target (sysinit.target pode nao funcionar em LXC)
+mkdir -p /etc/systemd/system/nftables.service.d
+cat > /etc/systemd/system/nftables.service.d/override.conf << NFTOVER
+[Service]
+ProtectSystem=
+ProtectHome=
+
+[Install]
+WantedBy=multi-user.target
+NFTOVER
+systemctl daemon-reload
 systemctl enable nftables >/dev/null 2>&1
 systemctl restart nftables >/dev/null 2>&1
 if [ -f /etc/nftables.conf ]; then

@@ -118,6 +118,16 @@ show_status() {
     warn "Servico nftables: ${RED}inativo${NC}"
   fi
 
+  # Container LXC
+  if systemd-detect-virt -c -q 2>/dev/null; then
+    info "Ambiente: ${BOLD}container LXC${NC}"
+    if [ -f /etc/systemd/system/nftables.service.d/override.conf ]; then
+      log "Override LXC do nftables.service: ${GREEN}ativo${NC}"
+    else
+      warn "Override LXC do nftables.service: ${RED}ausente${NC} (execute o firewall.sh para corrigir)"
+    fi
+  fi
+
   # iptables residual
   if command -v iptables &>/dev/null; then
     local ipt_rules
@@ -406,6 +416,26 @@ if ! command -v nft &>/dev/null; then
   apt-get update -y >/dev/null 2>&1
   apt-get install -y nftables >/dev/null 2>&1
 fi
+
+# Detectar container LXC e aplicar override do systemd
+# ProtectSystem/ProtectHome sao incompativeis com namespaces LXC
+# e sysinit.target pode nao funcionar em containers
+IS_LXC=false
+if systemd-detect-virt -c -q 2>/dev/null || grep -qsw 'lxc\|container' /proc/1/environ 2>/dev/null; then
+  IS_LXC=true
+  info "Container LXC detectado - aplicando override do nftables.service"
+  mkdir -p /etc/systemd/system/nftables.service.d
+  cat > /etc/systemd/system/nftables.service.d/override.conf << 'NFTOVER'
+[Service]
+ProtectSystem=
+ProtectHome=
+
+[Install]
+WantedBy=multi-user.target
+NFTOVER
+  systemctl daemon-reload
+fi
+
 systemctl enable nftables 2>/dev/null || true
 
 # ===================== GERAR /etc/nftables.conf =====================
