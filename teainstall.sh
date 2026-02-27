@@ -205,10 +205,10 @@ crontab /tmp/teaspeak_crontab
 rm -f /tmp/teaspeak_crontab'
 log "Crontab configurado"
 
-# 5.5. Coletar IPv4 para whitelist da porta 10101
-step "Configurando whitelist para porta 10101 (Server Query)..."
+# 5.5. Coletar IPv4 para whitelist do SSH e porta 10101
+step "Configurando whitelist para SSH e porta 10101 (Server Query)..."
 WHITELIST_IPS=()
-echo -e "${YELLOW}Digite os IPv4 para whitelist da porta 10101${NC}"
+echo -e "${YELLOW}Digite os IPv4 para whitelist do SSH e porta 10101${NC}"
 echo -e "${YELLOW}Aceita IP exato (ex: 170.84.159.207) ou CIDR (ex: 170.84.159.0/24)${NC}"
 echo -e "${YELLOW}Adicione pelo menos um IP. Linha vazia para finalizar.${NC}"
 while true; do
@@ -245,12 +245,12 @@ iptables -P OUTPUT ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# TCP: SSH e 30303
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+# TCP: 30303 (FileTransfer)
 iptables -A INPUT -p tcp --dport 30303 -j ACCEPT
 
-# TCP: 10101 restrita por whitelist
+# TCP: SSH e 10101 restritas por whitelist
 for cidr in "${WHITELIST_IPS[@]}"; do
+    iptables -A INPUT -p tcp -s "$cidr" --dport 22 -j ACCEPT
     iptables -A INPUT -p tcp -s "$cidr" --dport 10101 -j ACCEPT
 done
 
@@ -369,8 +369,8 @@ echo -e "  - Firewall: ${GREEN}OK${NC} - iptables configurado"
 
 echo ""
 echo -e "${CYAN}Portas abertas:${NC}"
-echo -e "  - TCP: 22, 30303"
-echo -e "  - TCP 10101: whitelist: ${WHITELIST_IPS[*]}"
+echo -e "  - TCP: 30303"
+echo -e "  - SSH/10101: whitelist: ${WHITELIST_IPS[*]}"
 echo -e "  - UDP: 10500-10530 com rate limiting"
 
 echo ""

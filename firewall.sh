@@ -17,7 +17,7 @@
 #   - UDP voice com prioridade maxima (antes de ct state invalid)
 #   - Sem rate limit global em UDP (protege usuarios legitimos)
 #   - SSH com rate limit por IP (brute-force nao afeta outros)
-#   - Server Query (10101) restrito por whitelist de IPs
+#   - SSH e Server Query (10101) restritos por whitelist de IPs
 #   - Conntrack expandido e sysctl otimizado para 700+ usuarios
 # =============================================================================
 
@@ -148,10 +148,10 @@ show_status() {
   # Config atual
   echo ""
   if detect_current_config; then
-    info "SSH:       porta ${BOLD}${SSH_PORT}${NC}"
+    info "SSH:       porta ${BOLD}${SSH_PORT}${NC} (whitelist)"
     info "TCP:       ${BOLD}${TCP_PORTS}${NC}"
     info "UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC}"
-    info "10101:     whitelist ${BOLD}${WHITELIST_IPS}${NC}"
+    info "SSH/10101: whitelist ${BOLD}${WHITELIST_IPS}${NC}"
   else
     warn "Arquivo /etc/nftables.conf nao encontrado"
   fi
@@ -322,7 +322,7 @@ read -rp "$(echo -e "${YELLOW}UDP fim${NC} [${BOLD}${UDP_RANGE_END}${NC}]: ")" i
 [ -n "$input" ] && { validate_port "$input" && UDP_RANGE_END="$input" || err "Porta invalida: $input"; }
 log "UDP: ${UDP_RANGE_START}-${UDP_RANGE_END}"
 
-# Whitelist para 10101
+# Whitelist para SSH e 10101
 echo ""
 if [ -n "$WHITELIST_IPS" ]; then
   info "Whitelist atual: ${BOLD}${WHITELIST_IPS}${NC}"
@@ -333,7 +333,7 @@ if [ -n "$WHITELIST_IPS" ]; then
 fi
 
 if [ -z "$WHITELIST_IPS" ]; then
-  echo -e "${YELLOW}IPs para whitelist da porta 10101 (Server Query):${NC}"
+  echo -e "${YELLOW}IPs para whitelist do SSH e porta 10101 (Server Query):${NC}"
   echo -e "${YELLOW}Aceita IP exato ou CIDR (ex: 170.84.159.0/24). Linha vazia para finalizar.${NC}"
   WHITELIST_CIDRS=()
   while true; do
@@ -357,9 +357,8 @@ log "Whitelist 10101: ${WHITELIST_IPS}"
 
 # ===================== CONFIRMACAO =====================
 echo -e "\n${BOLD}${CYAN}=== Resumo ===${NC}"
-echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (rate limit 5/min por IP)"
-echo -e "  TCP:       ${BOLD}${TCP_PORTS}${NC}"
-echo -e "  TCP 10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
+echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist + rate limit 5/min por IP)"
+echo -e "  SSH/10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
 echo -e "  UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC} (prioridade maxima, sem rate limit)"
 echo -e "  ICMP:      ${BOLD}5/s tipos especificos${NC}"
 echo -e "  Policy:    ${BOLD}DROP (todo o resto)${NC}"
@@ -461,8 +460,8 @@ table inet firewall {
         ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } limit rate 5/second burst 10 packets counter accept
         ip6 nexthdr icmpv6 counter drop
 
-        # SSH (porta ${SSH_PORT}) - rate limit POR IP de origem
-        tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } counter accept
+        # SSH (porta ${SSH_PORT}) - whitelist + rate limit POR IP de origem
+        ip saddr { ${WHITELIST_IPS} } tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } counter accept
 
         # TeaSpeak TCP (FileTransfer e outros servicos)
         tcp dport { ${TCP_PORTS} } counter accept
@@ -557,9 +556,8 @@ echo -e "${GREEN}${BOLD}       FIREWALL CONFIGURADO COM SUCESSO${NC}"
 echo -e "${GREEN}${BOLD}================================================${NC}\n"
 
 echo -e "${CYAN}Regras ativas:${NC}"
-echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (rate limit 5/min por IP)"
-echo -e "  TCP:       ${BOLD}${TCP_PORTS}${NC}"
-echo -e "  TCP 10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
+echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist + rate limit 5/min por IP)"
+echo -e "  SSH/10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
 echo -e "  UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC} (prioridade maxima)"
 echo -e "  ICMP:      ${BOLD}5/s tipos especificos${NC}"
 echo -e "  Conntrack: ${BOLD}$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo 262144)${NC} entradas"

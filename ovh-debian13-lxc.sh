@@ -338,7 +338,7 @@ function collect_firewall_params() {
   # Portas TCP
   TCP_PORTS="30303"
   if NEW_TCP=$(whiptail --backtitle "OVH Debian 13 LXC - TeaSpeak" \
-    --inputbox "Portas TCP abertas (separadas por virgula)\n\n30303 = TeaSpeak FileTransfer\n\nNOTA: A porta 10101 (Server Query) sera restrita\npor whitelist de IPs na proxima etapa." \
+    --inputbox "Portas TCP abertas (separadas por virgula)\n\n30303 = TeaSpeak FileTransfer\n\nNOTA: SSH e porta 10101 (Server Query) serao restritas\npor whitelist de IPs na proxima etapa." \
     14 58 "$TCP_PORTS" --title "PORTAS TCP" --cancel-button Sair 3>&1 1>&2 2>&3); then
     [ -n "$NEW_TCP" ] && TCP_PORTS="$NEW_TCP"
     echo -e "${CM}${GN}Portas TCP: ${BGN}${TCP_PORTS}${CL}"
@@ -365,12 +365,12 @@ function collect_firewall_params() {
   fi
   echo -e "${CM}${GN}Range UDP: ${BGN}${UDP_RANGE_START}-${UDP_RANGE_END}${CL}"
 
-  # Whitelist IPv4 para porta 10101 (Server Query)
+  # Whitelist IPv4 para SSH e porta 10101 (Server Query)
   WHITELIST_CIDRS=()
   while true; do
     WL_IP=$(whiptail --backtitle "OVH Debian 13 LXC - TeaSpeak" \
-      --inputbox "IPv4 para whitelist da porta 10101 (Server Query)\n\nIP exato (ex: 170.84.159.207) ou CIDR (ex: 170.84.159.0/24)\n\nIPs adicionados: ${#WHITELIST_CIDRS[@]}" \
-      16 62 "" --title "WHITELIST 10101 (OBRIGATORIO)" --cancel-button Sair 3>&1 1>&2 2>&3) || exit_script
+      --inputbox "IPv4 para whitelist do SSH e porta 10101 (Server Query)\n\nIP exato (ex: 170.84.159.207) ou CIDR (ex: 170.84.159.0/24)\n\nIPs adicionados: ${#WHITELIST_CIDRS[@]}" \
+      16 62 "" --title "WHITELIST SSH/10101 (OBRIGATORIO)" --cancel-button Sair 3>&1 1>&2 2>&3) || exit_script
     WL_IP=$(echo "$WL_IP" | tr -d ' ')
     if validate_ipv4_cidr "$WL_IP"; then
       WHITELIST_CIDRS+=("$WL_IP")
@@ -385,7 +385,7 @@ function collect_firewall_params() {
     fi
   done
   if [ ${#WHITELIST_CIDRS[@]} -eq 0 ]; then
-    msg_error "Pelo menos um IPv4 deve ser informado para whitelist da porta 10101"
+    msg_error "Pelo menos um IPv4 deve ser informado para whitelist do SSH e porta 10101"
     exit 1
   fi
   WHITELIST_NFT=$(printf ", %s" "${WHITELIST_CIDRS[@]}")
@@ -436,8 +436,8 @@ table inet firewall {
         ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } limit rate 5/second burst 10 packets accept
         ip6 nexthdr icmpv6 drop
 
-        # SSH (porta ${SSH_PORT}) - rate limit POR IP de origem
-        tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } accept
+        # SSH (porta ${SSH_PORT}) - whitelist + rate limit POR IP de origem
+        ip saddr { ${WHITELIST_NFT} } tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } accept
 
         # TeaSpeak TCP (FileTransfer e outros servicos)
         tcp dport { ${TCP_PORTS} } accept
@@ -911,9 +911,9 @@ function show_summary() {
   echo -e "  Bridge:         ${BOLD}${BRG}${CL}"
   echo ""
   echo -e "${BL}Firewall (nftables):${CL}"
-  echo -e "  SSH:   ${BOLD}porta ${SSH_PORT}${CL} (rate limit por IP: 5/min)"
+  echo -e "  SSH:   ${BOLD}porta ${SSH_PORT}${CL} (whitelist + rate limit 5/min por IP)"
+  echo -e "  SSH/10101: ${BOLD}whitelist: ${WHITELIST_NFT}${CL}"
   echo -e "  TCP:   ${BOLD}${TCP_PORTS}${CL}"
-  echo -e "  TCP 10101: ${BOLD}whitelist: ${WHITELIST_NFT}${CL}"
   echo -e "  UDP:   ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${CL} (prioridade maxima)"
   echo -e "  ICMP:  ${BOLD}limitado 5/s${CL}"
   echo -e "  Conntrack: ${BOLD}262144 entradas${CL}"
@@ -983,8 +983,7 @@ echo -e "  Disco:         ${BOLD}${DISK_SIZE} GB${CL}"
 echo -e "  Tipo:          ${BOLD}$([ $UNPRIVILEGED -eq 0 ] && echo 'Privilegiado' || echo 'Nao-privilegiado')${CL}"
 echo -e "  Senha root:    ${BOLD}definida${CL}"
 echo -e "  SSH:           ${BOLD}porta ${SSH_PORT}${CL}"
-echo -e "  TCP:           ${BOLD}${TCP_PORTS}${CL}"
-echo -e "  TCP 10101:     ${BOLD}whitelist: ${WHITELIST_NFT}${CL}"
+echo -e "  SSH/10101:     ${BOLD}whitelist: ${WHITELIST_NFT}${CL}"
 echo -e "  UDP:           ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${CL}"
 echo ""
 
