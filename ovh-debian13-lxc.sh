@@ -688,12 +688,27 @@ apt-get install -y openssh-server cron nftables sudo wget curl screen xz-utils l
   # Configurar SSH
   msg_info "Configurando SSH (porta ${SSH_PORT})"
   pct exec "$CTID" -- bash -c "
+# Debian 13 usa ssh.socket (systemd socket activation) que ignora Port do sshd_config.
+# Desabilitar socket activation para que sshd gerencie a porta diretamente.
+systemctl disable --now ssh.socket 2>/dev/null || true
+systemctl disable --now ssh@.service 2>/dev/null || true
+rm -f /etc/systemd/system/ssh.service.d/00-socket.conf 2>/dev/null || true
+mkdir -p /etc/systemd/system/ssh.socket.d
+cat > /etc/systemd/system/ssh.socket.d/override.conf << 'SSHSOCK'
+[Socket]
+ListenStream=
+ListenStream=${SSH_PORT}
+SSHSOCK
+systemctl daemon-reload
+
 sed -i 's/^#\\?Port .*/Port ${SSH_PORT}/' /etc/ssh/sshd_config
 grep -q '^Port ' /etc/ssh/sshd_config || echo 'Port ${SSH_PORT}' >> /etc/ssh/sshd_config
 sed -i 's/^#\\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
 grep -q '^PermitRootLogin ' /etc/ssh/sshd_config || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
 sed -i 's/^#\\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 grep -q '^PasswordAuthentication ' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+systemctl enable ssh.socket 2>/dev/null || true
+systemctl restart ssh.socket 2>/dev/null || true
 systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 "
   msg_ok "SSH configurado na porta ${SSH_PORT}"

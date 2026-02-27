@@ -884,7 +884,10 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear %I \$TERM
 EOF' >/dev/null 2>&1 || true
 
-  # Configurar SSH - modificar sshd_config diretamente (Port, PermitRootLogin, PasswordAuthentication)
+  # Configurar SSH - modificar sshd_config + corrigir socket activation do Debian 13
+  # Debian 13 usa ssh.socket (systemd socket activation) que ignora Port do sshd_config.
+  # Override no socket para usar a porta correta + sshd_config coerente.
+  virt-customize -q -a "$WORK_FILE" --run-command "mkdir -p /etc/systemd/system/ssh.socket.d && printf '[Socket]\nListenStream=\nListenStream=${SSH_PORT}\n' > /etc/systemd/system/ssh.socket.d/override.conf" >/dev/null 2>&1
   virt-customize -q -a "$WORK_FILE" --run-command "sed -i 's/^#\?Port .*/Port ${SSH_PORT}/' /etc/ssh/sshd_config; grep -q '^Port ' /etc/ssh/sshd_config || echo 'Port ${SSH_PORT}' >> /etc/ssh/sshd_config" >/dev/null 2>&1
   virt-customize -q -a "$WORK_FILE" --run-command "sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config; grep -q '^PermitRootLogin ' /etc/ssh/sshd_config || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config" >/dev/null 2>&1
   virt-customize -q -a "$WORK_FILE" --run-command "sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config; grep -q '^PasswordAuthentication ' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config" >/dev/null 2>&1
