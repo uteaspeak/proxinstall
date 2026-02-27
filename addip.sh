@@ -56,7 +56,9 @@ validate_ipv4() {
 }
 
 get_current_ips() {
-  grep -oP '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' "$NETPLAN_FILE" 2>/dev/null || true
+  # Extrair apenas IPs do bloco "addresses:", ignorando rotas e gateway
+  awk '/^\s+addresses:/{found=1; next} found && /^\s+-\s+[0-9]/{print; next} found{found=0}' "$NETPLAN_FILE" \
+    | grep -oP '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' 2>/dev/null || true
 }
 
 get_gateway() {
