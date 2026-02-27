@@ -166,7 +166,7 @@ mkdir -p "$BACKUP_DIR" || error_exit "Erro ao criar diretorio de backup"
 [ ! -d "$TS3_DIR" ] && error_exit "Diretorio TeaSpeak nao encontrado"
 
 FILES_TO_BACKUP=""
-for item in "files" "geoloc" "config.yml" "query_ip_whitelist.txt" "TeaData.sqlite"; do
+for item in "files" "geoloc" "config.yml" "protocolkey.txt" "query_ip_whitelist.txt" "TeaData.sqlite"; do
     [ -e "$TS3_DIR/$item" ] && FILES_TO_BACKUP="$FILES_TO_BACKUP $item"
 done
 
