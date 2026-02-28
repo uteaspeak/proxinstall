@@ -14,7 +14,7 @@
 #
 # Seguranca:
 #   - 100% nftables (iptables removido automaticamente)
-#   - UDP voice com prioridade maxima (antes de ct state invalid)
+#   - UDP voice com notrack (bypass total do conntrack) + prioridade maxima
 #   - Sem rate limit global em UDP (protege usuarios legitimos)
 #   - SSH com rate limit por IP (brute-force nao afeta outros)
 #   - SSH e Server Query (10101) restritos por whitelist de IPs
@@ -454,14 +454,25 @@ cat > /etc/nftables.conf << NFTEOF
 # Gerado por firewall.sh em $(date '+%Y-%m-%d %H:%M:%S')
 # 100% nftables (sem iptables) - otimizado para 700+ usuarios simultaneos
 # =============================================================================
-# UDP voice tem PRIORIDADE MAXIMA na chain input.
-# Aceito ANTES de 'ct state invalid drop' para que conntrack nunca
-# interfira com trafego de voz. Sem rate limit global nas portas UDP.
+# UDP voice usa notrack (bypass do conntrack) + prioridade maxima na chain.
+# Pacotes de voz nunca passam pelo conntrack, eliminando overhead e risco
+# de drops por tabela cheia ou estado invalido.
 # =============================================================================
 
 flush ruleset
 
 table inet firewall {
+
+    # =============================================================
+    # PREROUTING RAW - notrack para UDP voice
+    # Tira trafego de voz do conntrack: zero overhead, zero risco
+    # de drop por tabela cheia ou timeout. Pacotes chegam como
+    # 'untracked' e sao aceitos direto na chain input.
+    # =============================================================
+    chain prerouting {
+        type filter hook prerouting priority raw; policy accept;
+        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} notrack
+    }
 
     chain input {
         type filter hook input priority 0; policy drop;
@@ -469,15 +480,15 @@ table inet firewall {
         # Loopback - trafego interno do sistema
         iif "lo" accept
 
-        # Conexoes estabelecidas/relacionadas - usuarios conectados SEMPRE passam
-        ct state established,related counter accept
-
         # =============================================================
-        # UDP VOICE - PRIORIDADE MAXIMA (antes de qualquer filtro)
-        # Posicionado ANTES de 'ct state invalid drop' para garantir
-        # que pacotes de voz NUNCA sejam descartados por conntrack.
+        # UDP VOICE - PRIORIDADE MAXIMA (primeiro na chain)
+        # Aceita pacotes untracked (notrack) e qualquer UDP de voz.
+        # Posicionado ANTES de tudo para latencia minima.
         # =============================================================
         udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} counter accept
+
+        # Conexoes estabelecidas/relacionadas - usuarios conectados SEMPRE passam
+        ct state established,related counter accept
 
         # Descartar pacotes invalidos (seguro: UDP voice ja aceito acima)
         ct state invalid counter drop
