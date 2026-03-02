@@ -568,7 +568,13 @@ function download_template() {
     msg_ok "Template ja disponivel: ${CL}${BL}${TEMPLATE}${CL}"
   else
     msg_info "Baixando template: ${TEMPLATE}"
-    pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" >/dev/null 2>&1
+    local DL_OUTPUT
+    if ! DL_OUTPUT=$(pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" 2>&1); then
+      msg_error "Falha ao baixar template!"
+      echo -e "\n${RD}Erro:${CL}"
+      echo "$DL_OUTPUT"
+      exit 1
+    fi
     msg_ok "Template baixado: ${CL}${BL}${TEMPLATE}${CL}"
   fi
 
@@ -582,7 +588,8 @@ function create_ct() {
 
   # Criar CT
   msg_info "Criando Container Debian 13 (${HN})"
-  pct create "$CTID" "$TEMPLATE_PATH" \
+  local PCT_OUTPUT
+  if ! PCT_OUTPUT=$(pct create "$CTID" "$TEMPLATE_PATH" \
     --hostname "$HN" \
     --cores "$CORE_COUNT" \
     --memory "$RAM_SIZE" \
@@ -594,13 +601,26 @@ function create_ct() {
     --unprivileged "$UNPRIVILEGED" \
     --features "nesting=1" \
     --onboot 1 \
-    --start 0 >/dev/null 2>&1
+    --start 0 2>&1); then
+    echo ""
+    msg_error "Falha ao criar container!"
+    echo -e "\n${RD}Erro do pct create:${CL}"
+    echo "$PCT_OUTPUT"
+    echo ""
+    echo -e "${YW}Verifique:${CL}"
+    echo -e "  - Storage '${STORAGE}' tem espaco para ${DISK_SIZE}GB?"
+    echo -e "  - CT ID ${CTID} ja esta em uso?"
+    echo -e "  - Template '${TEMPLATE_PATH}' existe?"
+    echo -e "  - MAC '${MAC}' esta correto?"
+    echo ""
+    exit 1
+  fi
   msg_ok "Container criado (ID: ${CTID})"
 
   # Descricao do CT
   local DESCRIPTION
   DESCRIPTION="OVH Debian 13 LXC - TeaSpeak | IP: ${FAILOVER_IP}/32 | SSH: ${SSH_PORT} | TCP: ${TCP_PORTS} | UDP: ${UDP_RANGE_START}-${UDP_RANGE_END}"
-  pct set "$CTID" -description "$DESCRIPTION" >/dev/null 2>&1
+  pct set "$CTID" -description "$DESCRIPTION" >/dev/null 2>&1 || true
 
   # Iniciar CT
   msg_info "Iniciando Container"
