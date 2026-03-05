@@ -11,14 +11,17 @@
 #   sudo bash firewall.sh --apply      # Aplica com valores atuais do /etc/nftables.conf
 #   sudo bash firewall.sh --show       # Mostra regras ativas
 #   sudo bash firewall.sh --status     # Status do firewall e conntrack
+#   sudo bash firewall.sh --drops      # Mostra pacotes bloqueados
 #
-# Seguranca:
+# Seguranca (3 camadas anti-DDoS):
 #   - 100% nftables (iptables removido automaticamente)
-#   - UDP voice com notrack (bypass total do conntrack) + prioridade maxima
-#   - Sem rate limit global em UDP (protege usuarios legitimos)
-#   - SSH com rate limit por IP (brute-force nao afeta outros)
+#   - PREROUTING RAW: drop fragmentos IP + notrack para UDP voice
+#   - CAMADA 1: Drop pacotes UDP > 750 bytes (voice legit max ~500 bytes)
+#   - CAMADA 2: Rate limit por IP (150 pps/IP, burst 300, timeout 120s)
+#   - CAMADA 3: Accept trafego legitimo restante
 #   - SSH e Server Query (10101) restritos por whitelist de IPs
-#   - Conntrack expandido e sysctl otimizado para 700+ usuarios
+#   - Conntrack zero para UDP voice (notrack no prerouting)
+#   - Sysctl otimizado para absorver spikes de trafego
 # =============================================================================
 
 set -euo pipefail
@@ -40,10 +43,9 @@ info() { echo -e "${CYAN}[i]${NC} $1"; }
 [[ "$(id -u)" -ne 0 ]] && err "Execute como root: sudo bash $0"
 
 # ===================== VALORES PADRAO =====================
-SSH_PORT="22"
+SSH_PORT="2424"
 TCP_PORTS="30303"
-UDP_RANGE_START="10500"
-UDP_RANGE_END="10530"
+UDP_PORTS=""
 WHITELIST_IPS=""
 
 # ===================== FUNCOES DE VALIDACAO =====================
@@ -70,29 +72,75 @@ validate_port() {
   [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
 }
 
+# Formata portas UDP para sintaxe nftables:
+#   1 porta:  "10601"           → "10601"
+#   N portas: "10601,10602,..." → "{ 10601, 10602, ... }"
+format_nft_ports() {
+  local ports="$1"
+  local count
+  count=$(echo "$ports" | tr ',' '\n' | wc -l)
+  if [ "$count" -le 1 ]; then
+    echo "$ports"
+  else
+    echo "{ $(echo "$ports" | sed 's/,/, /g') }"
+  fi
+}
+
+# Formata portas UDP para display humano:
+#   1 porta:  "10601"           → "10601"
+#   N portas: "10601,10602,..." → "10601, 10602, ..."
+format_display_ports() {
+  echo "$1" | sed 's/,/, /g'
+}
+
 # ===================== DETECTAR CONFIG ATUAL =====================
 detect_current_config() {
   if [ -f /etc/nftables.conf ]; then
-    # Extrair porta SSH atual
-    local ssh=$(grep -oP 'tcp dport \K[0-9]+(?= ct state new meter ssh_limit)' /etc/nftables.conf 2>/dev/null || true)
+    # Extrair porta SSH (primeira regra tcp dport com saddr whitelist)
+    local ssh
+    ssh=$(grep -P 'saddr.*tcp dport \d+.*accept' /etc/nftables.conf 2>/dev/null | grep -oP 'tcp dport \K[0-9]+' | head -1 || true)
     [ -n "$ssh" ] && SSH_PORT="$ssh"
 
-    # Extrair portas TCP atuais
-    local tcp=$(grep -oP 'tcp dport \{ \K[^}]+' /etc/nftables.conf 2>/dev/null | head -1 || true)
+    # Extrair porta TCP FileTransfer (tcp dport sem saddr, sem 10101)
+    local tcp
+    tcp=$(grep -P '^\s+tcp dport \d+ counter accept' /etc/nftables.conf 2>/dev/null | grep -v '10101' | grep -oP 'tcp dport \K[0-9]+' | head -1 || true)
     [ -n "$tcp" ] && TCP_PORTS="$tcp"
 
-    # Extrair range UDP atual
-    local udp_start=$(grep -oP 'udp dport \K[0-9]+(?=-)' /etc/nftables.conf 2>/dev/null | head -1 || true)
-    local udp_end=$(grep -oP 'udp dport [0-9]+-\K[0-9]+' /etc/nftables.conf 2>/dev/null | head -1 || true)
-    [ -n "$udp_start" ] && UDP_RANGE_START="$udp_start"
-    [ -n "$udp_end" ] && UDP_RANGE_END="$udp_end"
+    # Extrair portas UDP (porta unica, set {p1, p2}, ou range)
+    local udp_list
+    # Primeiro tenta extrair set { port1, port2, ... }
+    udp_list=$(grep -oP 'udp dport \{ \K[0-9, ]+' /etc/nftables.conf 2>/dev/null | head -1 | sed 's/ //g; s/,$//' || true)
+    if [ -z "$udp_list" ]; then
+      # Fallback: porta unica ou range
+      udp_list=$(grep -oP 'udp dport \K[0-9]+(-[0-9]+)?' /etc/nftables.conf 2>/dev/null | head -1 || true)
+    fi
+    [ -n "$udp_list" ] && UDP_PORTS="$udp_list"
 
-    # Extrair whitelist atual
-    local wl=$(grep -oP 'ip saddr \{ \K[^}]+(?= \} tcp dport 10101)' /etc/nftables.conf 2>/dev/null || true)
-    [ -n "$wl" ] && WHITELIST_IPS="$wl"
+    # Extrair IPs de whitelist (um por linha)
+    local wl_ips=()
+    while IFS= read -r line; do
+      local ip
+      ip=$(echo "$line" | grep -oP 'ip saddr \K[0-9./]+' || true)
+      [ -n "$ip" ] && wl_ips+=("$ip")
+    done < <(grep "tcp dport ${SSH_PORT}" /etc/nftables.conf 2>/dev/null | grep 'saddr' | sort -u)
+    if [ ${#wl_ips[@]} -gt 0 ]; then
+      WHITELIST_IPS=$(printf '%s\n' "${wl_ips[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
+    fi
 
     return 0
   fi
+
+  # Fallback: detectar do TeaSpeak diretamente via ss
+  if command -v ss &>/dev/null; then
+    local voice_ports
+    voice_ports=$(ss -ulnp 2>/dev/null | grep -i teaspeak | awk '{print $5}' | grep -oP ':\K[0-9]+' | sort -un | tr '\n' ',' | sed 's/,$//' || true)
+    [ -n "$voice_ports" ] && UDP_PORTS="$voice_ports"
+
+    local ft_port
+    ft_port=$(ss -tlnp 2>/dev/null | grep -i teaspeak | awk '{print $4}' | grep -oP ':\K[0-9]+' | grep -v '10101' | head -1 || true)
+    [ -n "$ft_port" ] && TCP_PORTS="$ft_port"
+  fi
+
   return 1
 }
 
@@ -160,11 +208,17 @@ show_status() {
   if detect_current_config; then
     info "SSH:       porta ${BOLD}${SSH_PORT}${NC} (whitelist)"
     info "TCP:       ${BOLD}${TCP_PORTS}${NC}"
-    info "UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC}"
-    info "SSH/10101: whitelist ${BOLD}${WHITELIST_IPS}${NC}"
+    info "UDP:       ${BOLD}$(format_display_ports "${UDP_PORTS}")${NC}"
+    info "Whitelist: ${BOLD}${WHITELIST_IPS}${NC}"
   else
     warn "Arquivo /etc/nftables.conf nao encontrado"
   fi
+
+  # Counters anti-DDoS
+  echo ""
+  info "${BOLD}Anti-DDoS counters:${NC}"
+  nft list chain ip raw prerouting 2>/dev/null | grep counter | sed 's/^/  /' || true
+  nft list chain inet firewall input 2>/dev/null | grep -E 'drop|accept' | grep -E 'udp|meta' | sed 's/^/  /' || true
 
   echo ""
   exit 0
@@ -192,23 +246,26 @@ show_drops() {
 
   echo -e "\n${BOLD}${CYAN}=== Pacotes Bloqueados (nftables) ===${NC}\n"
 
-  # Contadores das regras nftables (se disponiveis)
+  # Contadores das regras nftables
   if command -v nft &>/dev/null; then
-    echo -e "${BOLD}${YELLOW}--- Contadores por regra ---${NC}"
+    echo -e "${BOLD}${YELLOW}--- Contadores anti-DDoS ---${NC}"
+
+    echo -e "\n  ${BOLD}Prerouting (raw):${NC}"
+    nft list chain ip raw prerouting 2>/dev/null | grep counter | sed 's/^/    /' || true
+
+    echo -e "\n  ${BOLD}Input (firewall):${NC}"
     local has_counters=false
     while IFS= read -r line; do
       if [[ "$line" == *"counter"* ]]; then
         has_counters=true
-        # Colorir a linha: destacar packets e bytes
         local colored
         colored=$(echo "$line" | sed -E \
-          's/(counter packets )([0-9]+)( bytes )([0-9]+)/\1'"${BOLD}"'\2'"${NC}"'\3'"${BOLD}"'\4'"${NC}"'/g; s/^\s+/  /')
+          "s/(counter packets )([0-9]+)( bytes )([0-9]+)/\1${BOLD}\2${NC}\3${BOLD}\4${NC}/g; s/^\s+/    /")
         echo -e "$colored"
       fi
     done < <(nft list chain inet firewall input 2>/dev/null)
     if ! $has_counters; then
       warn "Sem contadores nas regras. Reconfigure com: sudo bash $0"
-      info "As regras atuais nao tem 'counter'. Reconfigure para habilitar."
     fi
     echo ""
   fi
@@ -249,7 +306,6 @@ show_drops() {
   recent=$(journalctl -k --no-pager -q -n "$LINES" 2>/dev/null | grep 'nftables-drop:' || true)
   if [ -n "$recent" ]; then
     echo "$recent" | while IFS= read -r line; do
-      # Extrair campos uteis
       local ts src dst dpt proto
       ts=$(echo "$line" | grep -oP '^\S+ \S+ \S+' || echo "?")
       src=$(echo "$line" | grep -oP 'SRC=\K[0-9.]+' || echo "?")
@@ -305,13 +361,16 @@ esac
 
 # ===================== MODO INTERATIVO =====================
 echo -e "\n${BOLD}${CYAN}================================================${NC}"
-echo -e "${BOLD}${CYAN}   FIREWALL TEASPEAK - nftables puro${NC}"
+echo -e "${BOLD}${CYAN}   FIREWALL TEASPEAK - nftables anti-DDoS${NC}"
 echo -e "${BOLD}${CYAN}================================================${NC}\n"
 
 # Detectar config atual como valores padrao
 if detect_current_config; then
   info "Configuracao atual detectada em /etc/nftables.conf"
   info "Pressione Enter para manter o valor atual entre [colchetes]\n"
+else
+  info "Nenhuma config anterior encontrada. Detectando do TeaSpeak...\n"
+  detect_current_config 2>/dev/null || true
 fi
 
 # Porta SSH
@@ -319,18 +378,43 @@ read -rp "$(echo -e "${YELLOW}Porta SSH${NC} [${BOLD}${SSH_PORT}${NC}]: ")" inpu
 [ -n "$input" ] && { validate_port "$input" && SSH_PORT="$input" || err "Porta invalida: $input"; }
 log "SSH: porta ${SSH_PORT}"
 
-# Portas TCP
-read -rp "$(echo -e "${YELLOW}Portas TCP${NC} (virgula) [${BOLD}${TCP_PORTS}${NC}]: ")" input
+# Portas TCP (FileTransfer)
+read -rp "$(echo -e "${YELLOW}Porta TCP FileTransfer${NC} [${BOLD}${TCP_PORTS}${NC}]: ")" input
 [ -n "$input" ] && TCP_PORTS="$input"
-log "TCP: ${TCP_PORTS}"
+log "TCP FileTransfer: ${TCP_PORTS}"
 
-# Range UDP
-read -rp "$(echo -e "${YELLOW}UDP inicio${NC} [${BOLD}${UDP_RANGE_START}${NC}]: ")" input
-[ -n "$input" ] && { validate_port "$input" && UDP_RANGE_START="$input" || err "Porta invalida: $input"; }
+# Portas UDP voice (multiplas portas para servidores virtuais)
+if [ -z "$UDP_PORTS" ]; then
+  # Auto-detectar TODAS as portas do TeaSpeak
+  local_udp=$(ss -ulnp 2>/dev/null | grep -i teaspeak | awk '{print $5}' | grep -oP ':\K[0-9]+' | sort -un | tr '\n' ',' | sed 's/,$//' || true)
+  [ -n "$local_udp" ] && UDP_PORTS="$local_udp"
+fi
+[ -z "$UDP_PORTS" ] && UDP_PORTS="10602"
 
-read -rp "$(echo -e "${YELLOW}UDP fim${NC} [${BOLD}${UDP_RANGE_END}${NC}]: ")" input
-[ -n "$input" ] && { validate_port "$input" && UDP_RANGE_END="$input" || err "Porta invalida: $input"; }
-log "UDP: ${UDP_RANGE_START}-${UDP_RANGE_END}"
+echo -e "${YELLOW}Portas UDP voice (servidores virtuais TeaSpeak):${NC}"
+echo -e "${YELLOW}Portas atuais: ${BOLD}$(format_display_ports "$UDP_PORTS")${NC}"
+read -rp "$(echo -e "${YELLOW}Manter portas atuais?${NC} [${BOLD}S${NC}/n]: ")" keep_udp
+if [[ "${keep_udp,,}" == "n" ]]; then
+  echo -e "${YELLOW}Digite as portas UDP (uma por linha). Linha vazia para finalizar:${NC}"
+  UDP_LIST=()
+  while true; do
+    read -rp "Porta UDP: " udp_input
+    [ -z "$udp_input" ] && [ ${#UDP_LIST[@]} -gt 0 ] && break
+    if [ -z "$udp_input" ]; then
+      echo -e "  ${RED}Pelo menos uma porta deve ser informada${NC}"
+      continue
+    fi
+    if validate_port "$udp_input"; then
+      UDP_LIST+=("$udp_input")
+      echo -e "  ${GREEN}Adicionada: ${udp_input}${NC}"
+    else
+      echo -e "  ${RED}Porta invalida: ${udp_input}${NC}"
+    fi
+  done
+  UDP_PORTS=$(printf ",%s" "${UDP_LIST[@]}")
+  UDP_PORTS="${UDP_PORTS:1}"
+fi
+log "UDP Voice: $(format_display_ports "$UDP_PORTS")"
 
 # Whitelist para SSH e 10101
 echo ""
@@ -360,17 +444,19 @@ if [ -z "$WHITELIST_IPS" ]; then
       echo -e "  ${RED}IPv4 invalido: ${wl_ip}${NC}"
     fi
   done
-  WHITELIST_IPS=$(printf ", %s" "${WHITELIST_CIDRS[@]}")
-  WHITELIST_IPS="${WHITELIST_IPS:2}"
+  WHITELIST_IPS=$(printf ",%s" "${WHITELIST_CIDRS[@]}")
+  WHITELIST_IPS="${WHITELIST_IPS:1}"
 fi
-log "Whitelist 10101: ${WHITELIST_IPS}"
+log "Whitelist: ${WHITELIST_IPS}"
 
 # ===================== CONFIRMACAO =====================
 echo -e "\n${BOLD}${CYAN}=== Resumo ===${NC}"
-echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist + rate limit 5/min por IP)"
-echo -e "  SSH/10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
-echo -e "  UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC} (prioridade maxima, sem rate limit)"
-echo -e "  ICMP:      ${BOLD}5/s tipos especificos${NC}"
+echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist)"
+echo -e "  Whitelist: ${BOLD}${WHITELIST_IPS}${NC}"
+echo -e "  TCP:       ${BOLD}${TCP_PORTS}${NC} (FileTransfer)"
+echo -e "  UDP:       ${BOLD}$(format_display_ports "$UDP_PORTS")${NC} (voice, notrack)"
+echo -e "  Anti-DDoS: ${BOLD}fragment drop + max 750 bytes + 150 pps/IP (burst 300)${NC}"
+echo -e "  ICMP:      ${BOLD}5/s rate limited${NC}"
 echo -e "  Policy:    ${BOLD}DROP (todo o resto)${NC}"
 echo ""
 
@@ -378,7 +464,7 @@ read -rp "$(echo -e "${YELLOW}Aplicar estas regras?${NC} [S/n]: ")" confirm
 [[ "${confirm,,}" == "n" ]] && { echo -e "${RED}Cancelado.${NC}"; exit 0; }
 
 # ===================== REMOVER IPTABLES (se presente) =====================
-if dpkg -l | grep -q 'iptables-persistent\|netfilter-persistent' 2>/dev/null; then
+if dpkg -l 2>/dev/null | grep -qE 'iptables-persistent|netfilter-persistent'; then
   warn "Removendo iptables-persistent para evitar conflito..."
 
   systemctl stop netfilter-persistent 2>/dev/null || true
@@ -402,6 +488,9 @@ if dpkg -l | grep -q 'iptables-persistent\|netfilter-persistent' 2>/dev/null; th
     ip6tables -P OUTPUT ACCEPT 2>/dev/null || true
   fi
 
+  # Limpar tabela iptables-nft do nftables
+  nft delete table ip filter 2>/dev/null || true
+
   DEBIAN_FRONTEND=noninteractive apt-get purge -y iptables-persistent netfilter-persistent 2>/dev/null || true
   rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6 2>/dev/null || true
   rm -rf /etc/iptables 2>/dev/null || true
@@ -418,8 +507,6 @@ if ! command -v nft &>/dev/null; then
 fi
 
 # Detectar container LXC e aplicar override do systemd
-# ProtectSystem/ProtectHome sao incompativeis com namespaces LXC
-# e sysinit.target pode nao funcionar em containers
 IS_LXC=false
 if systemd-detect-virt -c -q 2>/dev/null || grep -qsw 'lxc\|container' /proc/1/environ 2>/dev/null; then
   IS_LXC=true
@@ -427,8 +514,8 @@ if systemd-detect-virt -c -q 2>/dev/null || grep -qsw 'lxc\|container' /proc/1/e
   mkdir -p /etc/systemd/system/nftables.service.d
   cat > /etc/systemd/system/nftables.service.d/override.conf << 'NFTOVER'
 [Service]
-ProtectSystem=
-ProtectHome=
+ProtectSystem=false
+ProtectHome=false
 
 [Install]
 WantedBy=multi-user.target
@@ -436,7 +523,27 @@ NFTOVER
   systemctl daemon-reload
 fi
 
+# Desabilitar ssh.socket (Debian 12+ usa socket activation que ignora sshd_config Port)
+if systemctl is-enabled ssh.socket 2>/dev/null | grep -q enabled; then
+  warn "Desabilitando ssh.socket (conflita com porta SSH customizada)..."
+  systemctl stop ssh.socket 2>/dev/null || true
+  systemctl disable ssh.socket 2>/dev/null || true
+  systemctl restart ssh.service 2>/dev/null || true
+  log "ssh.socket desabilitado, ssh.service ativo"
+fi
+
 systemctl enable nftables 2>/dev/null || true
+
+# ===================== GERAR WHITELIST RULES =====================
+generate_whitelist_rules() {
+  local port="$1"
+  local action="$2"
+  local IFS=','
+  for ip in $WHITELIST_IPS; do
+    ip=$(echo "$ip" | xargs) # trim whitespace
+    printf '        ip saddr %s tcp dport %s counter %s\n' "$ip" "$port" "$action"
+  done
+}
 
 # ===================== GERAR /etc/nftables.conf =====================
 info "Gerando /etc/nftables.conf..."
@@ -444,83 +551,112 @@ info "Gerando /etc/nftables.conf..."
 # Backup da config anterior
 if [ -f /etc/nftables.conf ]; then
   cp /etc/nftables.conf "/etc/nftables.conf.bak.$(date +%Y%m%d_%H%M%S)"
-  log "Backup: /etc/nftables.conf.bak.$(date +%Y%m%d_%H%M%S)"
+  log "Backup salvo"
 fi
+
+# Gerar regras de whitelist
+SSH_WHITELIST=$(generate_whitelist_rules "$SSH_PORT" "accept")
+SQ_WHITELIST=$(generate_whitelist_rules "10101" "accept")
+
+# Formatar portas UDP para nftables
+NFT_UDP=$(format_nft_ports "$UDP_PORTS")
+DISPLAY_UDP=$(format_display_ports "$UDP_PORTS")
 
 cat > /etc/nftables.conf << NFTEOF
 #!/usr/sbin/nft -f
 # =============================================================================
-# nftables - Firewall TeaSpeak Server
+# nftables - Firewall TeaSpeak Anti-DDoS
 # Gerado por firewall.sh em $(date '+%Y-%m-%d %H:%M:%S')
-# 100% nftables (sem iptables) - otimizado para 700+ usuarios simultaneos
 # =============================================================================
-# UDP voice usa notrack (bypass do conntrack) + prioridade maxima na chain.
-# Pacotes de voz nunca passam pelo conntrack, eliminando overhead e risco
-# de drops por tabela cheia ou estado invalido.
+# Voice: UDP ${DISPLAY_UDP} | FileTransfer: TCP ${TCP_PORTS} | SSH: TCP ${SSH_PORT}
+#
+# Anti-DDoS (3 camadas):
+#   Prerouting: fragment drop (todo IP) + notrack UDP voice
+#   Layer 1: Drop UDP > 750 bytes (voice legit max ~500B payload)
+#   Layer 2: Rate limit 150 pps/IP, burst 300, timeout 120s
+#   Layer 3: Accept trafego legitimo
 # =============================================================================
 
 flush ruleset
 
-table inet firewall {
-
-    # =============================================================
-    # PREROUTING RAW - notrack para UDP voice
-    # Tira trafego de voz do conntrack: zero overhead, zero risco
-    # de drop por tabela cheia ou timeout. Pacotes chegam como
-    # 'untracked' e sao aceitos direto na chain input.
-    # =============================================================
+# ---------- PREROUTING RAW: bypass conntrack para voice ----------
+# Tabela separada (ip raw) para processar ANTES de qualquer conntrack.
+# - Fragmentos IP: SEMPRE dropados (voice legitimo nunca fragmenta,
+#   max payload ~500B, bem abaixo do MTU 1500). Fragmentos sao vetor
+#   de amplificacao e evasao de firewall.
+# - notrack: elimina 100% do overhead do conntrack para UDP voice.
+#   Sem notrack, cada pacote voice cria entrada na conntrack table,
+#   e atacante com IPs spoofados esgota a tabela inteira.
+table ip raw {
     chain prerouting {
         type filter hook prerouting priority raw; policy accept;
-        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} notrack
+
+        # Drop ALL IP fragments (amplification/evasion attack vector)
+        ip frag-off & 0x1fff != 0 counter drop
+
+        # Notrack voice UDP - zero conntrack overhead
+        udp dport ${NFT_UDP} counter notrack
     }
+}
 
+# ---------- MAIN FILTER ----------
+table inet firewall {
     chain input {
-        type filter hook input priority 0; policy drop;
+        type filter hook input priority filter; policy drop;
 
-        # Loopback - trafego interno do sistema
-        iif "lo" accept
+        # --- Loopback ---
+        iifname "lo" accept
 
-        # =============================================================
-        # UDP VOICE - PRIORIDADE MAXIMA (primeiro na chain)
-        # Aceita pacotes untracked (notrack) e qualquer UDP de voz.
-        # Posicionado ANTES de tudo para latencia minima.
-        # =============================================================
-        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} counter accept
-
-        # Conexoes estabelecidas/relacionadas - usuarios conectados SEMPRE passam
+        # --- Conntrack (TCP only, UDP voice e notracked) ---
         ct state established,related counter accept
+        ct state invalid counter drop comment "drop-invalid"
 
-        # Descartar pacotes invalidos (seguro: UDP voice ja aceito acima)
-        ct state invalid counter drop
+        # --- SSH whitelist ---
+${SSH_WHITELIST}
 
-        # ICMP - ping e diagnosticos (tipos especificos)
-        ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } limit rate 5/second burst 10 packets counter accept
+        # --- ServerQuery whitelist (10101) ---
+${SQ_WHITELIST}
+        tcp dport 10101 counter drop
+
+        # --- FileTransfer ---
+        tcp dport ${TCP_PORTS} counter accept
+
+        # --- ICMP rate-limited ---
+        ip protocol icmp limit rate 5/second burst 10 packets counter accept
+        ip6 nexthdr icmpv6 limit rate 5/second burst 10 packets counter accept
         ip protocol icmp counter drop
-
-        # ICMPv6 - inclui NDP para operacao IPv6 correta
-        ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } limit rate 5/second burst 10 packets counter accept
         ip6 nexthdr icmpv6 counter drop
 
-        # SSH (porta ${SSH_PORT}) - whitelist + rate limit POR IP de origem
-        ip saddr { ${WHITELIST_IPS} } tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } counter accept
+        # ====== UDP VOICE - 3-layer anti-DDoS ======
 
-        # TeaSpeak TCP (FileTransfer e outros servicos)
-        tcp dport { ${TCP_PORTS} } counter accept
+        # LAYER 1: Drop oversized packets
+        # Dados estatisticos (60s, 128K+ pkts, 150 users, Opus level 6):
+        #   Max payload observado: 500 bytes (meta length ~528)
+        #   Threshold: 750 bytes (50% margem sobre max observado)
+        #   Bloqueia: DNS amplification (3000+), memcached (50K+), NTP (468+)
+        udp dport ${NFT_UDP} meta length > 750 counter drop
 
-        # Server Query (10101) - apenas IPs autorizados (whitelist)
-        ip saddr { ${WHITELIST_IPS} } tcp dport 10101 counter accept
+        # LAYER 2: Per-IP rate limit
+        # Dados: user legit envia ~14 pps (max observado com 150 users).
+        # 150 pps/IP com burst 300 da margem 10x sobre o normal.
+        # timeout 120s: limpa IPs desconectados automaticamente.
+        # Atacantes com IP unico flood >10000 pps e sao cortados.
+        udp dport ${NFT_UDP} meter ts3_flood { ip saddr timeout 120s limit rate over 150/second burst 300 packets } counter drop
 
-        # Log e contagem de pacotes descartados
+        # LAYER 3: Accept remaining legitimate voice traffic
+        udp dport ${NFT_UDP} counter accept
+
+        # --- Policy drop logging ---
         counter comment "policy-drop-count"
         limit rate 3/minute burst 5 packets log prefix "nftables-drop: " level warn
     }
 
     chain forward {
-        type filter hook forward priority 0; policy drop;
+        type filter hook forward priority filter; policy drop;
     }
 
     chain output {
-        type filter hook output priority 0; policy accept;
+        type filter hook output priority filter; policy accept;
     }
 }
 NFTEOF
@@ -533,34 +669,45 @@ info "Gerando /etc/sysctl.d/99-teaspeak.conf..."
 
 cat > /etc/sysctl.d/99-teaspeak.conf << 'SYSEOF'
 # =============================================================================
-# Sysctl - Otimizacoes para TeaSpeak Server (700+ usuarios)
+# Sysctl - Tuning de rede para TeaSpeak Server Anti-DDoS
 # Gerado por firewall.sh
 # =============================================================================
 
-# Conntrack expandido
-net.netfilter.nf_conntrack_max = 262144
-net.nf_conntrack_max = 262144
-net.netfilter.nf_conntrack_buckets = 65536
-
-# Timeout UDP otimizado para voice
-net.netfilter.nf_conntrack_udp_timeout = 30
-net.netfilter.nf_conntrack_udp_timeout_stream = 180
-
-# Timeout TCP
-net.netfilter.nf_conntrack_tcp_timeout_established = 3600
-
-# Buffers de rede UDP
-net.core.rmem_max = 26214400
+# Receive buffer
+net.core.rmem_max = 16777216
 net.core.rmem_default = 1048576
-net.core.wmem_max = 26214400
+
+# Send buffer
+net.core.wmem_max = 16777216
 net.core.wmem_default = 1048576
 
-# Backlog de rede
-net.core.netdev_max_backlog = 10000
+# UDP buffers - absorver spikes antes do kernel dropar
+net.ipv4.udp_rmem_min = 65536
+net.ipv4.udp_wmem_min = 65536
+net.ipv4.udp_mem = 65536 131072 262144
+
+# Backlog de rede - fila de pacotes antes do processamento
+# Default kernel (1000) e muito baixo para absorver bursts
+net.core.netdev_max_backlog = 30000
+
+# Budget - quantos pacotes o kernel processa por ciclo NAPI
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 8000
+
+# Fila de conexoes TCP pendentes
+net.core.somaxconn = 4096
+
+# Conntrack otimizado (so TCP, voice e notracked)
+net.netfilter.nf_conntrack_udp_timeout = 30
+net.netfilter.nf_conntrack_udp_timeout_stream = 60
 
 # Protecao contra SYN flood
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_max_syn_backlog = 4096
+
+# Reverse path filter (anti-spoofing)
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 
 # Desabilitar ICMP redirects
 net.ipv4.conf.all.accept_redirects = 0
@@ -572,9 +719,14 @@ net.ipv4.conf.default.send_redirects = 0
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 
-# Protecao contra IP spoofing
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
+# Ignorar broadcasts ICMP (smurf attack prevention)
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Ignorar respostas ICMP bogus
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Timestamps TCP
+net.ipv4.tcp_timestamps = 1
 SYSEOF
 
 log "Arquivo /etc/sysctl.d/99-teaspeak.conf gerado"
@@ -597,17 +749,27 @@ echo -e "${GREEN}${BOLD}       FIREWALL CONFIGURADO COM SUCESSO${NC}"
 echo -e "${GREEN}${BOLD}================================================${NC}\n"
 
 echo -e "${CYAN}Regras ativas:${NC}"
-echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist + rate limit 5/min por IP)"
-echo -e "  SSH/10101: ${BOLD}whitelist: ${WHITELIST_IPS}${NC}"
-echo -e "  UDP:       ${BOLD}${UDP_RANGE_START}-${UDP_RANGE_END}${NC} (prioridade maxima)"
-echo -e "  ICMP:      ${BOLD}5/s tipos especificos${NC}"
-echo -e "  Conntrack: ${BOLD}$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo 262144)${NC} entradas"
+echo -e "  SSH:       ${BOLD}porta ${SSH_PORT}${NC} (whitelist)"
+echo -e "  Whitelist: ${BOLD}${WHITELIST_IPS}${NC}"
+echo -e "  TCP:       ${BOLD}${TCP_PORTS}${NC} (FileTransfer)"
+echo -e "  UDP:       ${BOLD}$(format_display_ports "$UDP_PORTS")${NC} (voice, notrack, anti-DDoS)"
+echo -e "  Anti-DDoS: ${BOLD}fragment drop + max 750 bytes + 150 pps/IP burst 300${NC}"
+echo -e "  ICMP:      ${BOLD}5/s rate limited${NC}"
+echo ""
+echo -e "${CYAN}Verificacao rapida:${NC}"
+
+# Mostrar counters iniciais
+echo -e "  ${BOLD}Prerouting:${NC}"
+nft list chain ip raw prerouting 2>/dev/null | grep counter | sed 's/^/    /'
+echo -e "  ${BOLD}Anti-DDoS:${NC}"
+nft list chain inet firewall input 2>/dev/null | grep -E 'udp.*drop|meta.*drop|udp.*accept' | sed 's/^/    /'
+
 echo ""
 echo -e "${CYAN}Comandos uteis:${NC}"
 echo -e "  ${YELLOW}sudo bash $0 --show${NC}       Ver regras ativas"
-echo -e "  ${YELLOW}sudo bash $0 --status${NC}     Status completo"
-echo -e "  ${YELLOW}sudo bash $0 --drops${NC}      Ver pacotes bloqueados (top IPs, portas)"
-echo -e "  ${YELLOW}sudo bash $0 --drops --live${NC}  Monitorar drops em tempo real"
+echo -e "  ${YELLOW}sudo bash $0 --status${NC}     Status completo + counters"
+echo -e "  ${YELLOW}sudo bash $0 --drops${NC}      Ver pacotes bloqueados"
+echo -e "  ${YELLOW}sudo bash $0 --drops --live${NC}  Monitorar drops tempo real"
 echo -e "  ${YELLOW}sudo bash $0 --apply${NC}      Reaplicar /etc/nftables.conf"
 echo -e "  ${YELLOW}sudo bash $0${NC}              Reconfigurar interativamente"
 echo ""

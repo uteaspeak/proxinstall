@@ -393,68 +393,101 @@ function collect_firewall_params() {
 }
 
 # ===================== GERAR CONFIGURACAO NFTABLES =====================
+# Anti-DDoS (3 camadas):
+#   Prerouting RAW: fragment drop (todo IP) + notrack UDP voice
+#   Layer 1: Drop UDP > 750 bytes (voice legit max ~500B payload)
+#   Layer 2: Rate limit 150 pps/IP, burst 300, timeout 120s
+#   Layer 3: Accept trafego legitimo
 function generate_nftables_conf() {
   cat <<NFTEOF
 #!/usr/sbin/nft -f
 # =============================================================================
-# nftables - Firewall TeaSpeak Server (OVH Failover IP)
+# nftables - Firewall + Anti-DDoS TeaSpeak Server (OVH Failover IP)
 # Gerado automaticamente pelo ovh-debian13-lxc.sh
 # 100% nftables (sem iptables) - otimizado para 700+ usuarios simultaneos
 # =============================================================================
-# IMPORTANTE: UDP voice tem PRIORIDADE MAXIMA na chain input.
-# Aceito ANTES de 'ct state invalid drop' para que conntrack nunca
-# interfira com trafego de voz. Sem rate limit global nas portas UDP.
-# Protecao volumetrica e responsabilidade do anti-DDoS da OVH.
+# Anti-DDoS (3 camadas):
+#   Prerouting: fragment drop (todo IP) + notrack UDP voice
+#   Layer 1: Drop UDP > 750 bytes (voice legit max ~500B payload)
+#   Layer 2: Rate limit 150 pps/IP, burst 300, timeout 120s
+#   Layer 3: Accept trafego legitimo
 # =============================================================================
 
 flush ruleset
 
+# ---------- PREROUTING RAW: bypass conntrack para voice ----------
+# - Fragmentos IP: SEMPRE dropados (voice legitimo nunca fragmenta,
+#   max payload ~500B, bem abaixo do MTU 1500). Fragmentos sao vetor
+#   de amplificacao e evasao de firewall.
+# - notrack: elimina 100% do overhead do conntrack para UDP voice.
+#   Sem notrack, cada pacote voice cria entrada na conntrack table,
+#   e atacante com IPs spoofados esgota a tabela inteira.
+table ip raw {
+    chain prerouting {
+        type filter hook prerouting priority raw; policy accept;
+
+        # Drop ALL IP fragments (amplification/evasion attack vector)
+        ip frag-off & 0x1fff != 0 counter drop
+
+        # Notrack voice UDP - zero conntrack overhead
+        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} counter notrack
+    }
+}
+
+# ---------- MAIN FILTER ----------
 table inet firewall {
 
     chain input {
-        type filter hook input priority 0; policy drop;
+        type filter hook input priority filter; policy drop;
 
-        # Loopback - trafego interno do sistema
-        iif "lo" accept
+        # Loopback
+        iifname "lo" accept
 
-        # Conexoes estabelecidas/relacionadas - usuarios conectados SEMPRE passam
-        ct state established,related accept
+        # Conntrack (TCP only, UDP voice e notracked)
+        ct state established,related counter accept
+        ct state invalid counter drop
 
-        # =============================================================
-        # UDP VOICE - PRIORIDADE MAXIMA (antes de qualquer filtro)
-        # =============================================================
-        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} accept
-
-        # Descartar pacotes invalidos (seguro: UDP voice ja aceito acima)
-        ct state invalid drop
-
-        # ICMP
-        ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } limit rate 5/second burst 10 packets accept
-        ip protocol icmp drop
+        # ICMP rate-limited
+        ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } limit rate 5/second burst 10 packets counter accept
+        ip protocol icmp counter drop
 
         # ICMPv6
-        ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } limit rate 5/second burst 10 packets accept
-        ip6 nexthdr icmpv6 drop
+        ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } limit rate 5/second burst 10 packets counter accept
+        ip6 nexthdr icmpv6 counter drop
 
-        # SSH (porta ${SSH_PORT}) - whitelist + rate limit POR IP de origem
+        # SSH (porta ${SSH_PORT}) - whitelist + rate limit POR IP
         ip saddr { ${WHITELIST_NFT} } tcp dport ${SSH_PORT} ct state new meter ssh_limit { ip saddr limit rate 5/minute burst 10 packets } accept
 
         # TeaSpeak TCP (FileTransfer e outros servicos)
-        tcp dport { ${TCP_PORTS} } accept
+        tcp dport { ${TCP_PORTS} } counter accept
 
         # Server Query (10101) - apenas IPs autorizados (whitelist)
         ip saddr { ${WHITELIST_NFT} } tcp dport 10101 accept
 
-        # Log de pacotes descartados
+        # ====== UDP VOICE - 3-layer anti-DDoS ======
+
+        # LAYER 1: Drop oversized packets
+        # Voice payload max ~500B (Opus). Threshold 750B blocks amplification attacks.
+        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} meta length > 750 counter drop
+
+        # LAYER 2: Per-IP rate limit (150 pps, burst 300, timeout 120s)
+        # Normal user ~14 pps. 150 pps = 10x margin. Floods >10000 pps cut instantly.
+        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} meter ts3_flood { ip saddr timeout 120s limit rate over 150/second burst 300 packets } counter drop
+
+        # LAYER 3: Accept remaining legitimate voice traffic
+        udp dport ${UDP_RANGE_START}-${UDP_RANGE_END} counter accept
+
+        # Log dropped packets
+        counter comment "policy-drop-count"
         limit rate 3/minute burst 5 packets log prefix "nftables-drop: " level warn
     }
 
     chain forward {
-        type filter hook forward priority 0; policy drop;
+        type filter hook forward priority filter; policy drop;
     }
 
     chain output {
-        type filter hook output priority 0; policy accept;
+        type filter hook output priority filter; policy accept;
     }
 }
 NFTEOF
@@ -464,30 +497,40 @@ NFTEOF
 function generate_sysctl_conf() {
   cat <<SYSEOF
 # =============================================================================
-# Sysctl - Otimizacoes para TeaSpeak Server (700+ usuarios)
+# Sysctl - Tuning de rede para TeaSpeak Server Anti-DDoS
 # Gerado automaticamente pelo ovh-debian13-lxc.sh
 # =============================================================================
 
-# Conntrack
-net.netfilter.nf_conntrack_max = 262144
-net.nf_conntrack_max = 262144
-net.netfilter.nf_conntrack_buckets = 65536
-net.netfilter.nf_conntrack_udp_timeout = 30
-net.netfilter.nf_conntrack_udp_timeout_stream = 180
-net.netfilter.nf_conntrack_tcp_timeout_established = 3600
-
-# Buffers de rede UDP
-net.core.rmem_max = 26214400
+# Receive buffer
+net.core.rmem_max = 16777216
 net.core.rmem_default = 1048576
-net.core.wmem_max = 26214400
+
+# Send buffer
+net.core.wmem_max = 16777216
 net.core.wmem_default = 1048576
 
-# Backlog de rede
-net.core.netdev_max_backlog = 10000
+# UDP buffers - absorver spikes antes do kernel dropar
+net.ipv4.udp_rmem_min = 65536
+net.ipv4.udp_wmem_min = 65536
+net.ipv4.udp_mem = 65536 131072 262144
+
+# NOTA: netdev_max_backlog, netdev_budget e netdev_budget_usecs sao
+# read-only em containers LXC. Devem ser configurados no host Proxmox.
+
+# Fila de conexoes TCP pendentes
+net.core.somaxconn = 4096
+
+# Conntrack otimizado (so TCP, voice e notracked via table ip raw)
+net.netfilter.nf_conntrack_udp_timeout = 30
+net.netfilter.nf_conntrack_udp_timeout_stream = 60
 
 # Protecao contra SYN flood
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_max_syn_backlog = 4096
+
+# Reverse path filter (anti-spoofing)
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 
 # Desabilitar ICMP redirects
 net.ipv4.conf.all.accept_redirects = 0
@@ -499,9 +542,14 @@ net.ipv4.conf.default.send_redirects = 0
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 
-# Protecao contra IP spoofing
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
+# Ignorar broadcasts ICMP (smurf attack prevention)
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Ignorar respostas ICMP bogus
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Timestamps TCP
+net.ipv4.tcp_timestamps = 1
 SYSEOF
 }
 
@@ -740,13 +788,13 @@ systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
   rm -f "/tmp/ovh_nftables_${CTID}.conf"
   pct exec "$CTID" -- bash -c '
 # Override do nftables.service para funcionar corretamente em containers LXC
-# - Remove ProtectSystem/ProtectHome (incompativeis com namespaces LXC)
+# - ProtectSystem=false e ProtectHome=false (incompativeis com namespaces LXC)
 # - Garante ativacao via multi-user.target (sysinit.target pode nao funcionar em LXC)
 mkdir -p /etc/systemd/system/nftables.service.d
 cat > /etc/systemd/system/nftables.service.d/override.conf << NFTOVER
 [Service]
-ProtectSystem=
-ProtectHome=
+ProtectSystem=false
+ProtectHome=false
 
 [Install]
 WantedBy=multi-user.target
